@@ -1484,10 +1484,9 @@ class BaseSDTrainProcess(BaseTrainProcess):
 
             params = self.load_additional_training_modules(params)
 
-        else:  # no network, embedding or adapter
+        else:  # NOT RUN
             # set the device state preset before getting params
             self.sd.set_device_state(self.train_device_state_preset)
-
             # params = self.get_params()
             if len(params) == 0:
                 # will only return savable weights and ones with grad
@@ -1571,6 +1570,7 @@ class BaseSDTrainProcess(BaseTrainProcess):
         ### HOOk ###
         self.before_dataset_load()
         # load datasets if passed in the root process
+
         if self.datasets is not None:
             self.data_loader = get_dataloader_from_datasets(self.datasets, self.train_config.batch_size, self.sd)
         if self.datasets_reg is not None:

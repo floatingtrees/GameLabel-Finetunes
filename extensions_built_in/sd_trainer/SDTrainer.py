@@ -281,6 +281,7 @@ class SDTrainer(BaseSDTrainProcess):
             batch: 'DataLoaderBatchDTO',
             mask_multiplier: Union[torch.Tensor, float] = 1.0,
             prior_pred: Union[torch.Tensor, None] = None,
+            noise_pred_base: torch.Tensor = None,
             **kwargs
     ):
         loss_target = self.train_config.loss_target
@@ -295,13 +296,13 @@ class SDTrainer(BaseSDTrainProcess):
         with torch.no_grad():
             loss_multiplier = torch.tensor(batch.loss_multiplier_list).to(self.device_torch, dtype=torch.float32)
 
-        if self.train_config.match_noise_norm:
+        if self.train_config.match_noise_norm: # Not run
             # match the norm of the noise
             noise_norm = torch.linalg.vector_norm(noise, ord=2, dim=(1, 2, 3), keepdim=True)
             noise_pred_norm = torch.linalg.vector_norm(noise_pred, ord=2, dim=(1, 2, 3), keepdim=True)
             noise_pred = noise_pred * (noise_norm / noise_pred_norm)
 
-        if self.train_config.pred_scaler != 1.0:
+        if self.train_config.pred_scaler != 1.0: # also not used here
             noise_pred = noise_pred * self.train_config.pred_scaler
 
         target = None
@@ -309,7 +310,7 @@ class SDTrainer(BaseSDTrainProcess):
         if self.train_config.target_noise_multiplier != 1.0:
             noise = noise * self.train_config.target_noise_multiplier
 
-        if self.train_config.correct_pred_norm or (self.train_config.inverted_mask_prior and prior_pred is not None and has_mask):
+        if self.train_config.correct_pred_norm or (self.train_config.inverted_mask_prior and prior_pred is not None and has_mask): # NOT RUN
             if self.train_config.correct_pred_norm and not is_reg:
                 with torch.no_grad():
                     # this only works if doing a prior pred
@@ -362,8 +363,7 @@ class SDTrainer(BaseSDTrainProcess):
         elif self.sd.prediction_type == 'v_prediction':
             # v-parameterization training
             target = self.sd.noise_scheduler.get_velocity(batch.tensor, noise, timesteps)
-
-        elif self.sd.is_flow_matching:
+        elif self.sd.is_flow_matching: # THIS IS THE ONE THAT'S GETTING USED
             target = (noise - batch.latents).detach()
         else:
             target = noise
@@ -374,6 +374,7 @@ class SDTrainer(BaseSDTrainProcess):
         pred = noise_pred
 
         if self.train_config.train_turbo:
+            print("HI")
             pred, target = self.process_output_for_turbo(pred, noisy_latents, timesteps, noise, batch)
 
         ignore_snr = False
@@ -409,7 +410,7 @@ class SDTrainer(BaseSDTrainProcess):
             # mse loss without reduction
             loss_per_element = (weighing.float() * (denoised_latents.float() - target.float()) ** 2)
             loss = loss_per_element
-        else:
+        else: # PATH TAKEN
 
             if self.train_config.loss_type == "mae":
                 loss = torch.nn.functional.l1_loss(pred.float(), target.float(), reduction="none")
@@ -425,8 +426,8 @@ class SDTrainer(BaseSDTrainProcess):
                 ).to(loss.device, dtype=loss.dtype)
                 timestep_weight = timestep_weight.view(-1, 1, 1, 1).detach()
                 loss = loss * timestep_weight
-
-        if self.train_config.do_prior_divergence and prior_pred is not None:
+        '''
+        if self.train_config.do_prior_divergence and prior_pred is not None: 
             loss = loss + (torch.nn.functional.mse_loss(pred.float(), prior_pred.float(), reduction="none") * -1.0)
 
         if self.train_config.train_turbo:
@@ -459,8 +460,8 @@ class SDTrainer(BaseSDTrainProcess):
         loss = loss * loss_multiplier
         if prior_loss is not None:
             loss = loss + prior_loss
-
-        if not self.train_config.train_turbo:
+        '''
+        if not self.train_config.train_turbo: # TAKEN, but did nothing (no following paths taken)
             if self.train_config.learnable_snr_gos:
                 # add snr_gamma
                 loss = apply_learnable_snr_gos(loss, timesteps, self.snr_gos)
@@ -471,20 +472,20 @@ class SDTrainer(BaseSDTrainProcess):
             elif self.train_config.min_snr_gamma is not None and self.train_config.min_snr_gamma > 0.000001 and not ignore_snr:
                 # add min_snr_gamma
                 loss = apply_snr_weight(loss, timesteps, self.sd.noise_scheduler, self.train_config.min_snr_gamma)
-
-        loss = loss.mean()
+        loss = loss.mean() + torch.norm(noise_pred_base.detach() - noise_pred, p = 'fro') / noise_pred_base.numel()
+        
 
         # check for additional losses
-        if self.adapter is not None and hasattr(self.adapter, "additional_loss") and self.adapter.additional_loss is not None:
-
+        if self.adapter is not None and hasattr(self.adapter, "additional_loss") and self.adapter.additional_loss is not None: # NOT TAKEN
             loss = loss + self.adapter.additional_loss.mean()
             self.adapter.additional_loss = None
 
-        if self.train_config.target_norm_std:
+        if self.train_config.target_norm_std: # ALSO NOT TAKEN
             # seperate out the batch and channels
             pred_std = noise_pred.std([2, 3], keepdim=True)
             norm_std_loss = torch.abs(self.train_config.target_norm_std_value - pred_std).mean()
             loss = loss + norm_std_loss
+        
 
 
         return loss
@@ -732,6 +733,7 @@ class SDTrainer(BaseSDTrainProcess):
             # turn the LoRA network back on.
             self.sd.unet.train()
             self.network.is_active = True
+            
 
             self.network.multiplier = cat_network_weight_list
 
@@ -927,6 +929,7 @@ class SDTrainer(BaseSDTrainProcess):
             unconditional_embeds: Union[PromptEmbeds, None] = None,
             **kwargs,
     ):
+        
         dtype = get_torch_dtype(self.train_config.dtype)
         return self.sd.predict_noise(
             latents=noisy_latents.to(self.device_torch, dtype=dtype),
@@ -1458,7 +1461,7 @@ class SDTrainer(BaseSDTrainProcess):
                     guidance_type: GuidanceType = batch.file_items[0].dataset_config.guidance_type
                     if guidance_type == 'tnt':
                         do_guidance_prior = True
-
+                # NOT RELEVANT 
                 if ((
                         has_adapter_img and self.assistant_adapter and match_adapter_assist) or self.do_prior_prediction or do_guidance_prior or do_reg_prior or do_inverted_masked_prior or self.train_config.correct_pred_norm):
                     with self.timer('prior predict'):
@@ -1497,14 +1500,14 @@ class SDTrainer(BaseSDTrainProcess):
                             is_unconditional=True,
                             quad_count=quad_count
                         )
-
+                # NOT RELEVANT 
                 if self.adapter and isinstance(self.adapter, CustomAdapter) and batch.extra_values is not None:
                     self.adapter.add_extra_values(batch.extra_values.detach())
 
                     if self.train_config.do_cfg:
                         self.adapter.add_extra_values(torch.zeros_like(batch.extra_values.detach()),
                                                       is_unconditional=True)
-
+                # NOT RELEVANT  
                 if has_adapter_img:
                     if (self.adapter and isinstance(self.adapter, ControlNetModel)) or (
                             self.assistant_adapter and isinstance(self.assistant_adapter, ControlNetModel)):
@@ -1550,17 +1553,25 @@ class SDTrainer(BaseSDTrainProcess):
                         prior_pred=prior_pred,
                     )
 
-                else:
+                else: # USEFUL BRANCH, LATEST LORA COULD HAPPEN
                     with self.timer('predict_unet'):
                         if unconditional_embeds is not None:
                             unconditional_embeds = unconditional_embeds.to(self.device_torch, dtype=dtype).detach()
-                        noise_pred = self.predict_noise(
+                        noise_pred = self.predict_noise( # PREDICTION CODE
                             noisy_latents=noisy_latents.to(self.device_torch, dtype=dtype),
                             timesteps=timesteps,
                             conditional_embeds=conditional_embeds.to(self.device_torch, dtype=dtype),
                             unconditional_embeds=unconditional_embeds,
                             **pred_kwargs
                         )
+                        with torch.no_grad():
+                            self.network.is_active = False
+                            noise_pred_base = self.predict_noise(noisy_latents=noisy_latents.to(self.device_torch, dtype=dtype),
+                            timesteps=timesteps,
+                            conditional_embeds=conditional_embeds.to(self.device_torch, dtype=dtype),
+                            unconditional_embeds=unconditional_embeds,
+                            **pred_kwargs)
+                            self.network.is_active = True
                     self.after_unet_predict()
 
                     with self.timer('calculate_loss'):
@@ -1573,6 +1584,7 @@ class SDTrainer(BaseSDTrainProcess):
                             batch=batch,
                             mask_multiplier=mask_multiplier,
                             prior_pred=prior_pred,
+                            noise_pred_base = noise_pred_base
                         )
                 # check if nan
                 if torch.isnan(loss):
@@ -1598,14 +1610,20 @@ class SDTrainer(BaseSDTrainProcess):
 
         return loss.detach()
         # flush()
-
+    
     def hook_train_loop(self, batch: Union[DataLoaderBatchDTO, List[DataLoaderBatchDTO]]):
+
         if isinstance(batch, list):
             batch_list = batch
         else:
             batch_list = [batch]
+        
         total_loss = None
         self.optimizer.zero_grad()
+        
+        # Collect all parameters that require gradients
+        parameters_to_hook = [p for group in self.optimizer.param_groups for p in group['params'] if p.requires_grad]
+
         for batch in batch_list:
             loss = self.train_single_accumulation(batch)
             if total_loss is None:
@@ -1614,8 +1632,6 @@ class SDTrainer(BaseSDTrainProcess):
                 total_loss += loss
             if len(batch_list) > 1 and self.model_config.low_vram:
                 torch.cuda.empty_cache()
-
-
         if not self.is_grad_accumulation_step:
             # fix this for multi params
             if self.train_config.optimizer != 'adafactor':

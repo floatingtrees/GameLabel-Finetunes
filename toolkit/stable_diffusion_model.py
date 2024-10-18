@@ -1497,6 +1497,7 @@ class StableDiffusion:
             **kwargs,
     ):
         conditional_pred = None
+        
         # get the embeddings
         if text_embeddings is None and conditional_embeddings is None:
             raise ValueError("Either text_embeddings or conditional_embeddings must be specified")
