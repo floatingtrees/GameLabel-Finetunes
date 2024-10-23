@@ -8,5 +8,3 @@ toolkit/stable_diffusion_model.py
 config.yaml
 
 The fine-tuned model is located at (https://huggingface.co/Jonathan-Zhou/Flux-GameLabel-Lora)[https://huggingface.co/Jonathan-Zhou/Flux-GameLabel-Lora], and the dataset is located at (https://huggingface.co/datasets/Jonathan-Zhou/GameLabel-10k)[https://huggingface.co/datasets/Jonathan-Zhou/GameLabel-10k]. Dataset collection details are located at (https://arxiv.org/abs/2409.19830)[https://arxiv.org/abs/2409.19830]
-
-# How to Reproduce LORA
